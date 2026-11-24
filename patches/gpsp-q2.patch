@@ -1,0 +1,95 @@
+diff --git a/Makefile b/Makefile
+index f5e3bf2..680d897 100644
+--- a/Makefile
++++ b/Makefile
+@@ -427,8 +427,8 @@ else ifeq ($(platform), mips32)
+ 	TARGET := $(TARGET_NAME)_libretro.so
+ 	SHARED := -shared -nostdlib -Wl,--version-script=link.T
+ 	fpic := -fPIC -DPIC
+-	CFLAGS += -fomit-frame-pointer -ffast-math -march=mips32 -mtune=mips32r2 -mhard-float
+-	CFLAGS += -DMIPS_HAS_R2_INSTS
++	CFLAGS += -fomit-frame-pointer -ffast-math -march=mips32r2 -mtune=mips32r2 -mhard-float
++	CFLAGS += -DMIPS_HAS_R2_INSTS -DSMALL_TRANSLATION_CACHE -DROM_BUFFER_SIZE=8 -DQ2_FRAME_BUDGET
+ 	HAVE_DYNAREC := 1
+ 	CPU_ARCH := mips
+ 
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+index ed2a7d2..b253236 100644
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -409,7 +409,7 @@ void set_fastforward_override(bool fastforward)
+    environ_cb(RETRO_ENVIRONMENT_SET_FASTFORWARDING_OVERRIDE, &ff_override);
+ }
+ 
+-static void audio_run(void)
++static void audio_run(bool output)
+ {
+    s16 *audio_buffer_ptr;
+    u32 samples_to_read;
+@@ -434,7 +434,9 @@ static void audio_run(void)
+       audio_samples_accumulator -= 1.0f;
+    }
+ 
+-   samples_produced = sound_read_samples(audio_sample_buffer, samples_to_read);
++   samples_produced = sound_read_samples(output ? audio_sample_buffer : NULL, samples_to_read);
++   if (!output)
++      return;
+ 
+    /* Workaround for a RetroArch audio driver
+     * limitation: a maximum of 1024 frames
+@@ -1367,6 +1369,7 @@ size_t retro_get_memory_size(unsigned id)
+ 
+ void retro_run(void)
+ {
++   bool output_audio = true;
+    bool updated = false;
+ 
+    input_poll_cb();
+@@ -1435,6 +1438,17 @@ void retro_run(void)
+       }
+    }
+ 
++#ifdef Q2_FRAME_BUDGET
++   /* The Q2 frontend can pace panel updates independently of GBA execution. */
++   int enabled = 3;
++   if (environ_cb(RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE, &enabled))
++   {
++      if (!(enabled & 1))
++         skip_next_frame = 1;
++      output_audio = (enabled & 2) != 0;
++   }
++#endif
++
+    /* If frameskip settings have changed, update
+     * frontend audio latency */
+    if (update_audio_latency)
+@@ -1463,7 +1477,7 @@ void retro_run(void)
+      rumble_cb(0, RETRO_RUMBLE_STRONG, MIN(strength, 0xffff) / 2);
+    }
+ 
+-   audio_run();
++   audio_run(output_audio);
+    video_run();
+ 
+    switch (serial_mode) {
+diff --git a/sound.c b/sound.c
+index 97380cb..a747965 100644
+--- a/sound.c
++++ b/sound.c
+@@ -844,7 +844,15 @@ u32 sound_read_samples(s16 *out, u32 frames)
+    if (samples_to_read > samples_available)
+       samples_to_read = samples_available;
+ 
+-   for(i = 0; i < samples_to_read; i++)
++   if (!out)
++   {
++      u32 first = BUFFER_SIZE_MASK + 1 - sound_buffer_base;
++      if (first > samples_to_read)
++         first = samples_to_read;
++      memset(sound_buffer + sound_buffer_base, 0, first * sizeof(*sound_buffer));
++      memset(sound_buffer, 0, (samples_to_read - first) * sizeof(*sound_buffer));
++   }
++   else for(i = 0; i < samples_to_read; i++)
+    {
+       u32 source_index   = (sound_buffer_base + i) & BUFFER_SIZE_MASK;
+       s32 current_sample = sound_buffer[source_index];

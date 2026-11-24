@@ -1,0 +1,35 @@
+# ROMs / BIOS / saves — never committed, never shipped in a release.
+# The ROM is built from source only (scripts/build-rom-linux.sh) and lives
+# in local scratch; a retail ROM or a BIOS must never be added here.
+*.gba
+*.gba.gz
+*.sav
+*.srm
+*.gb
+*.gbc
+gba_bios.bin
+bios.bin
+
+# Local build scratch: pokefirered source checkout, built ROM, upstream
+# analysis clone. None of it belongs in the repo.
+/.build/
+
+# Toolchains / dependencies (fetched by scripts, never committed).
+/.toolchain/
+/deps/
+
+# Build + package output. (Anchored: package/.dailyred/ is tracked source.)
+/build/
+/dist/
+/.dailyred/
+
+# Object files and static libraries.
+*.o
+*.a
+
+# Logs and temp files.
+*.log
+*.tmp
+
+# OS / editor noise.
+.DS_Store
