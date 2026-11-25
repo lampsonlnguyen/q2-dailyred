@@ -16,13 +16,18 @@ in the launcher.
 > or The Pokémon Company. Pokémon and all related names, characters and
 > game content are © Nintendo, Creatures Inc. and GAME FREAK inc.
 
+## Downloads and user guide
+
+- [GitHub Releases](https://github.com/lampsonlnguyen/q2-dailyred/releases)
+- [User Guide — installation, ROM patching, controls and troubleshooting](USER_GUIDE.md)
+
 ## How it works
 
 ```
-pret/pokefirered @ 037335f + patches/pokefirered-dailyred.patch
+pret/pokefirered @ 037335f + Daily Red patch + Q2 ROM patches
   ── make MODERN=1 ──▶ dailyred.gba (16 MB, built locally, never committed)
 Q2 launcher ──▶ today's local date → FNV-1a seed → patch a RAM copy of the ROM
-  ──▶ gpSP boots it → the game generates today's team → you climb to RED
+  ──▶ gpSP boots it → the game generates today's team → RED battle starts automatically
   ──▶ launcher polls the game's RAM status block → records win/loss in stats.json
 ```
 
@@ -34,14 +39,14 @@ Q2 launcher ──▶ today's local date → FNV-1a seed → patch a RAM copy of
   the moment RED's battle starts — same as the website.
 - **Your record lives on the SD card** (`/mnt/mmc/dailyred/stats.json`):
   wins, losses, win streak, day streak. The game itself never saves.
-- **Practice mode:** put a decimal seed in `/mnt/mmc/dailyred/practice-seed.txt`
-  and a "Practice (seed N, not recorded)" row appears on the launcher.
-  Practice boots with `daily=0` and records nothing.
+- **Practice mode:** select Practice at any time, even after completing the daily battle. Each launch generates a new seed internally; practice boots with `daily=0` and records nothing.
 
 See [DESIGN.md](DESIGN.md) for the full design (seed, stats state machine,
 controls, screen, audio, and the list of unknowns).
 
 ## Build
+
+The Q2-specific launcher changes are integrated into the application source. The fetch script applies the upstream Daily Red patch followed by the direct-battle and wheel-navigation ROM patches. For a one-command local build after installing both toolchains, run `bash scripts/patch-rom-to-use-wheel.sh`. It also supports an existing Daily Red source checkout and packages the locally built ROM in `dist/.dailyred/`. No Windows-specific paths are required.
 
 You need git, a Linux host, and (for the card app) a Q2 sysroot. No ROM is
 downloaded or used anywhere in this process — the ROM is built from source.
@@ -51,7 +56,7 @@ downloaded or used anywhere in this process — the ROM is built from source.
 scripts/setup-linux.sh              # xPack GCC 14.2.1, project-local, no sudo
 #   ... or: sudo apt install gcc-arm-none-eabi   (system GCC 13.2, simpler)
 
-# 2. Fetch the decompilation and apply the Daily Red patch (local scratch only)
+# 2. Fetch the decompilation and apply Daily Red and Q2 ROM patches (local scratch only)
 scripts/fetch-pokefirered.sh        # pret/pokefirered @ 037335f → .build/pokefirered
 
 # 3. Build the ROM (16 MB, verified to contain the DAILYRED-CONF-V2 magic)
@@ -85,23 +90,18 @@ ROM is missing, the launcher says so instead of failing.
 
 | Q2 button | In battle | In menus |
 |---|---|---|
-| Return | Up | Back |
-| Play/Pause | Down | — |
-| Previous | Left | — |
-| Next | Right | — |
-| Centre | A | Confirm |
-| Wheel | — | Step (21/tick) |
+| Return | B / Back | Back |
+| Play/Pause | Not mapped to GBA | — |
+| Previous / Next | Not mapped to GBA | — |
+| Centre | A / Confirm | Confirm |
+| Wheel | Cycle battle choices | Step (21/tick) |
 
-Touch overlays: L, R, B, Menu, Select, Start. Menu opens Pause
-(Resume / Sound: Game or Q2 Music / Q2 Now Playing / Picture / Exit to
-launcher). An edge swipe inward hides or shows the overlays.
+Swipe inward from either screen edge to open Pause (Resume / Picture / Exit to launcher). Game audio is disabled so Q2 music can continue.
 
-- Walk up the summit, talk to RED, battle. Losing does not white you out.
+- The battle starts automatically on entering the summit. Losing does not white you out.
 - After the closing messages the game fades to black; the launcher returns
   to the title screen after a second.
-- Return+Centre held 1.2 s force-closes (firmware gameview chord).
-- The launcher shows the date and seed it computed — if the Q2's clock or
-  timezone is wrong, the team will be wrong, and this is where you see it.
+- The launcher shows the local date; seeds are generated internally.
 
 ## Daily rules
 
@@ -109,7 +109,7 @@ launcher). An edge swipe inward hides or shows the overlays.
 - The day counts as played the moment RED's battle starts. Leaving
   mid-battle — quitting, powering off, or the game restarting — is a loss.
 - Win and day streaks break when a day is missed. Totals never reset.
-- Practice runs (flag file, see above) are never recorded and never lock
+- Practice runs are never recorded and never lock
   the daily battle.
 
 ## Licences

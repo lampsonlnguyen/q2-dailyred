@@ -65,7 +65,6 @@
 static const char *data_dir = DATA_DIR_DEFAULT;
 #define ROM_NAME "dailyred.gba"
 #define STATS_NAME "stats.json"
-#define PRACTICE_SEED_NAME "practice-seed.txt"
 #define DYNAREC_FLAG_NAME "enable-dynarec.txt"
 #define AUDIO_SOURCE_NAME "audio-source.cfg"
 #define LOG_NAME "q2-dailyred.log"
@@ -107,7 +106,7 @@ static enum Screen screen = SCREEN_LAUNCHER;
 static enum Scale scaling = SCALE_FIT;
 static enum VideoFilter video_filter = FILTER_SHARP_BILINEAR;
 static int running, dirty = 1, menu_focus, launcher_focus;
-static bool game_controls_hidden, use_dynarec, music_mode, audio2, firmware_keys;
+static bool music_only, use_dynarec, music_mode, audio2, firmware_keys;
 static bool native_supported, native_yielded, prefer_music, remember_source;
 static bool audio_timeout, smoke, smoke_mute;
 static char smoke_rom[PATH_CAP]; /* --smoke ROM path (command line, not SD) */
@@ -156,8 +155,23 @@ static char stats_path[PATH_CAP];
 static char today[DAILYRED_DATE_LEN];
 static uint32_t seed;
 static bool played_today;        /* lastPlayed == today (result known) */
-static bool practice_mode;       /* practice-seed.txt present: daily=0, nothing recorded */
-static uint32_t practice_seed;
+static bool practice_mode;       /* active run: daily=0, nothing recorded */
+static uint32_t practice_seed(void)
+{
+    static uint32_t previous;
+    uint32_t value;
+    FILE *random = fopen("/dev/urandom", "rb");
+    bool ok = random && fread(&value, sizeof value, 1, random) == 1;
+    if (random) fclose(random);
+    if (!ok) {
+        struct timespec ts = {0};
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        value = (uint32_t)time(NULL) ^ (uint32_t)ts.tv_nsec ^ (uint32_t)getpid();
+    }
+    if (!value || value == previous) value = previous == UINT32_MAX ? 1 : previous + 1;
+    previous = value;
+    return value;
+}
 static bool battle_seen;         /* phase reached BATTLE at least once */
 static bool result_recorded;     /* result written to stats for this run */
 static long status_offset;       /* cached DAILYRED-STATUS1 offset in SYSTEM_RAM, -1 = unscanned */
@@ -436,6 +450,10 @@ static bool enable_manifest_audio(bool supported, bool *was_audio2)
     char *line = text;
     while (line) {
         char *end = strchr(line, '\n');
+        if ((end ? end - line : (ptrdiff_t)strlen(line)) == 7 && !strncmp(line, "audio=0", 7)) {
+            music_only = true;
+            return true;
+        }
         if ((end ? end - line : (ptrdiff_t)strlen(line)) >= 7 &&
             !strncmp(line, "audio=", 6) && (line[6] == '1' || line[6] == '2') &&
             (line[7] == '\r' || line[7] == '\n' || !line[7])) {
@@ -723,12 +741,14 @@ static void audio_sample(int16_t l, int16_t r)
 static void input_poll(void) {}
 
 /* Physical + touch state, OR'd like q2-boy's input_state(). */
-static unsigned physical_keys, touch_keys, pressed_this_frame;
+static unsigned physical_keys, pressed_this_frame;
+static int battle_wheel_steps;
+static bool battle_wheel_release;
 
 static int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id)
 {
     if (port || device != RETRO_DEVICE_JOYPAD || index) return 0;
-    unsigned pressed = physical_keys | touch_keys | pressed_this_frame;
+    unsigned pressed = physical_keys | pressed_this_frame;
     if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return (int16_t)pressed;
     return id < 16 && (pressed & (1u << id)) != 0;
 }
@@ -937,7 +957,6 @@ static bool load_rom_daily(void)
     }
     cartridge_saves(false);
     running = 1;
-    game_controls_hidden = false;
     have_frame = false;
     memset(cart, 0, sizeof cart);
     next_save = clock_ns() + 20000000000ull;
@@ -947,7 +966,9 @@ static bool load_rom_daily(void)
     status_unavailable = false;
     status_fallback = false;
     finished_at = 0;
-    physical_keys = touch_keys = pressed_this_frame = 0;
+    physical_keys = pressed_this_frame = 0;
+    battle_wheel_steps = 0;
+    battle_wheel_release = false;
     if (!smoke) {
         /* The day counts as played from the moment RED's battle starts —
          * but only if the status link works. If SYSTEM_RAM is not exposed
@@ -1051,16 +1072,7 @@ static void settle_current_run(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Controls — q2-boy physical defaults + visible GBA touch overlays   */
-/*                                                                     */
-/*   Return = Up, Play/Pause = Down, Previous = Left, Next = Right,    */
-/*   Centre = A. The wheel does nothing during gameplay; in menus it   */
-/*   steps 21 units/tick with a ±84 clamp and a 300 ms idle reset.     */
-/* ------------------------------------------------------------------ */
-
-enum Control { C_L, C_R, C_B, C_MENU, C_SELECT, C_START, CONTROLS };
-typedef struct { int x, y, size, opacity, visible; unsigned keys; const char *label; } Button;
-#define DEFAULT_OPACITY 70
+/* Daily Red controls */
 
 /* Forward declarations: input handling calls the menu/launcher actions,
  * which are defined with the UI below. */
@@ -1072,20 +1084,6 @@ static int launcher_rows(void);
 static void launcher_activate(int row);
 static void refresh_launcher_state(void);
 static void tap_menu_or_launcher(int x, int y);
-static const Button overlay_defaults[CONTROLS] = {
-    {29, 5, 72, DEFAULT_OPACITY, 1, KEY(L), "L"},
-    {274, 5, 72, DEFAULT_OPACITY, 1, KEY(R), "R"},
-    {297, 244, 60, DEFAULT_OPACITY, 1, KEY(B), "B"},
-    {34, 272, 62, DEFAULT_OPACITY, 1, 0, "Menu"},
-    {126, 281, 56, DEFAULT_OPACITY, 1, KEY(SELECT), "Select"},
-    {192, 281, 56, DEFAULT_OPACITY, 1, KEY(START), "Start"},
-};
-static Button buttons[CONTROLS];
-
-/* Physical button ids, for menu semantics (q2-boy read_event): in menus
- * Centre confirms and Return goes back; Prev/Next do nothing there —
- * the wheel steps. The mapped GBA key (Return=Up etc.) is only for
- * gameplay. */
 enum Physical { P_RETURN, P_PLAY, P_PREVIOUS, P_NEXT, P_CENTRE, PHYSICAL_COUNT };
 static unsigned held_buttons;
 
@@ -1115,7 +1113,7 @@ static int decode_key(Event e)
 static unsigned physical_to_key(int id)
 {
     static const unsigned keys[PHYSICAL_COUNT] =
-        {KEY(UP), KEY(DOWN), KEY(LEFT), KEY(RIGHT), KEY(A)};
+        {KEY(B), 0, 0, 0, KEY(A)};
     return id >= 0 && id < PHYSICAL_COUNT ? keys[id] : 0;
 }
 
@@ -1124,81 +1122,55 @@ static uint64_t wheel_time;
 
 static void read_wheel(int delta)
 {
-    if (screen == SCREEN_GAME) return; /* the wheel never steers in battle */
     uint64_t now = clock_ns();
     if (!wheel_time || now - wheel_time > 300000000ull) wheel_delta = 0;
     wheel_time = now;
     wheel_delta += clamp(delta, -84, 84);
     /* q2-boy's sign: a negative delta steps the menu +1 (down), a
      * positive delta steps -1 (up). 21 units per tick. */
-    while (wheel_delta >= 21) { wheel_delta -= 21; menu_move(-1); }
-    while (wheel_delta <= -21) { wheel_delta += 21; menu_move(1); }
+    int steps = wheel_delta / 21;
+    wheel_delta %= 21;
+    if (screen == SCREEN_GAME) battle_wheel_steps = clamp(battle_wheel_steps - steps, -8, 8);
+    else while (steps) {
+        int direction = steps > 0 ? -1 : 1;
+        menu_move(direction);
+        steps += direction;
+    }
 }
 
-/* Touch: tap = press on down, release on up; an edge touch swiped
- * inward >= 36 px toggles the overlay visibility (q2-boy semantics). */
-#define GAME_EDGE_WIDTH 46
-#define GAME_SWIPE_DISTANCE 36
-static int touch_button = -1, touch_down_x, touch_down_y;
-static bool touch_swiped;
+/* An inward swipe from either edge opens the pause menu during a battle. */
+static int touch_down_x, touch_down_y;
+static bool touch_active;
 
 static void read_touch(char action, int x, int y)
 {
-    if (screen != SCREEN_GAME) {
-        /* Menus: a tap (down + up with almost no movement) on a row
-         * activates it, like q2-boy's tap_menu. */
-        if (action == 'd') { touch_down_x = x; touch_down_y = y; return; }
-        if (action == 'u' && abs(x - touch_down_x) + abs(y - touch_down_y) < 5) {
-            touch_keys = 0;
-            touch_button = -1;
-            tap_menu_or_launcher(x, y);
-            dirty = 1;
-        }
-        return;
-    }
     if (action == 'd') {
         touch_down_x = x;
         touch_down_y = y;
-        touch_swiped = false;
-        touch_button = -1;
-        if (!game_controls_hidden) {
-            for (int i = 0; i < CONTROLS; ++i) {
-                const Button *b = &buttons[i];
-                if (!b->visible) continue;
-                int h = b->size; /* overlays are square-ish; Menu/Select/Start are shorter */
-                if (i == C_MENU || i == C_SELECT || i == C_START) h = 40;
-                if (x >= b->x && x < b->x + b->size && y >= b->y && y < b->y + h) {
-                    touch_button = i;
-                    if (i == C_MENU) { set_screen_menu(); return; }
-                    if (b->keys) touch_keys |= b->keys;
-                    return;
-                }
-            }
-        }
+        touch_active = true;
         return;
     }
-    if (action == 'm') {
-        if (!touch_swiped && touch_button < 0 &&
-            (touch_down_x < GAME_EDGE_WIDTH || touch_down_x >= WIDTH - GAME_EDGE_WIDTH)) {
-            int in = touch_down_x < GAME_EDGE_WIDTH ? x - touch_down_x : touch_down_x - x;
-            if (in >= GAME_SWIPE_DISTANCE) {
-                touch_swiped = true;
-                game_controls_hidden = !game_controls_hidden;
-                dirty = 1;
-            }
+    if (!touch_active) return;
+    if (screen == SCREEN_GAME) {
+        int inward = touch_down_x < 46 ? x - touch_down_x :
+                     touch_down_x >= WIDTH - 46 ? touch_down_x - x : 0;
+        if (inward >= 36) {
+            touch_active = false;
+            set_screen_menu();
         }
-        return;
+    } else if (action == 'u' && abs(x - touch_down_x) + abs(y - touch_down_y) < 5) {
+        tap_menu_or_launcher(x, y);
+        dirty = 1;
     }
-    /* action == 'u' */
-    if (touch_button >= 0 && buttons[touch_button].keys)
-        touch_keys &= ~buttons[touch_button].keys;
-    touch_button = -1;
+    if (action == 'u') touch_active = false;
 }
 
 static void set_screen_menu(void)
 {
     if (screen != SCREEN_GAME) return;
     screen = SCREEN_MENU;
+    battle_wheel_steps = 0;
+    battle_wheel_release = false;
     menu_focus = 0;
     dirty = 1;
 }
@@ -1207,7 +1179,7 @@ static void set_screen_menu(void)
 static void menu_move(int direction)
 {
     if (screen == SCREEN_MENU) {
-        int rows = firmware_keys ? 5 : 4;
+        int rows = music_only ? 3 : firmware_keys ? 5 : 4;
         menu_focus += direction;
         if (menu_focus < 0) menu_focus = rows - 1;
         if (menu_focus >= rows) menu_focus = 0;
@@ -1225,7 +1197,10 @@ static void read_event(Event e)
     if (e.kind == 'w') { read_wheel(e.x); return; }
     if (e.kind == 't') { read_touch(e.action, e.x, e.y); return; }
     if (e.kind == 'r') { /* input reset (SYN_DROPPED): drop all held keys */
-        physical_keys = touch_keys = pressed_this_frame = held_buttons = 0;
+        physical_keys = pressed_this_frame = held_buttons = 0;
+        battle_wheel_steps = 0;
+        battle_wheel_release = false;
+        touch_active = false;
         return;
     }
     int id = decode_key(e), down = e.action == 'd';
@@ -1258,7 +1233,7 @@ static int launcher_rows(void)
 {
     int rows = 0;
     if (!played_today && !rom_missing) ++rows;       /* Play today's battle */
-    if (practice_mode) ++rows;                        /* Practice (seed N) */
+    if (!rom_missing) ++rows;                         /* Practice */
     ++rows;                                           /* Exit */
     return rows;
 }
@@ -1277,9 +1252,10 @@ static void launcher_activate(int row)
         }
         ++index;
     }
-    if (practice_mode) {
+    if (!rom_missing) {
         if (row == index) {
-            seed = practice_seed;
+            practice_mode = true;
+            seed = practice_seed();
             if (load_rom_daily()) return;
             status("Could not start the practice battle");
             return;
@@ -1300,13 +1276,13 @@ static void menu_confirm(void)
      * 3 Picture, 4 Exit to launcher. */
     int row = menu_focus;
     if (row == 0) { screen = SCREEN_GAME; dirty = 1; return; }
-    if (row == 1) {
+    if (!music_only && row == 1) {
         if (music_mode) (void)switch_audio2(AUDIO_GAME, true);
         else (void)switch_audio2(AUDIO_MUSIC, true);
         return;
     }
     if (firmware_keys && row == 2) { request_now_playing(); return; }
-    if (row == (firmware_keys ? 3 : 2)) {
+    if (row == (music_only ? 1 : firmware_keys ? 3 : 2)) {
         scaling = (scaling + 1) % SCALE_COUNT;
         video_filter = video_filter == FILTER_SHARP_BILINEAR ? FILTER_NEAREST : FILTER_SHARP_BILINEAR;
         dirty = 1;
@@ -1339,7 +1315,7 @@ static void tap_menu_or_launcher(int x, int y)
             launcher_activate(row);
         }
     } else if (screen == SCREEN_MENU) {
-        int rows = firmware_keys ? 5 : 4;
+        int rows = music_only ? 3 : firmware_keys ? 5 : 4;
         int row = (y - 70) / 26;
         if (row >= 0 && row < rows) {
             menu_focus = row;
@@ -1366,10 +1342,6 @@ static void draw_launcher(void)
     int y = 62;
     text_at(17, y, "Today", GRAY, WIDTH - 16);
     snprintf(line, sizeof line, "%s", today);
-    text_at(90, y, line, WHITE, WIDTH - 16);
-    y += 22;
-    text_at(17, y, "Seed", GRAY, WIDTH - 16);
-    snprintf(line, sizeof line, "%u", seed);
     text_at(90, y, line, WHITE, WIDTH - 16);
     y += 22;
 
@@ -1417,11 +1389,10 @@ static void draw_launcher(void)
         ry += 22;
         ++row;
     }
-    if (practice_mode) {
+    if (!rom_missing) {
         bool chosen = launcher_focus == row;
-        snprintf(line, sizeof line, "%s Practice (seed %u, not recorded)",
-                 chosen ? ">" : " ", practice_seed);
-        text_at(17, ry, line, chosen ? ACCENT : WHITE, WIDTH - 16);
+        text_at(17, ry, chosen ? "> Practice" : "  Practice",
+                chosen ? ACCENT : WHITE, WIDTH - 16);
         ry += 22;
         ++row;
     }
@@ -1443,26 +1414,6 @@ static void draw_game(void)
     if (video_filter == FILTER_SHARP_BILINEAR &&
         (picture.width % (int)cart_width || picture.height % (int)cart_height)) draw_sharp(picture);
     else draw_nearest(picture);
-    if (!game_controls_hidden) {
-        for (int i = 0; i < CONTROLS; ++i) {
-            const Button *b = &buttons[i];
-            if (!b->visible) continue;
-            int w = b->size, h = (i == C_MENU || i == C_SELECT || i == C_START) ? 40 : b->size;
-            unsigned alpha = (unsigned)b->opacity * 256 / 100;
-            for (int yy = 0; yy < h; ++yy) {
-                for (int xx = 0; xx < w; ++xx) {
-                    uint32_t *pixel = &canvas[(b->y + yy) * WIDTH + b->x + xx];
-                    uint32_t old = *pixel, tint = DARK;
-                    unsigned rb = ((old & 0xff00ff) * (256 - alpha) + (tint & 0xff00ff) * alpha) >> 8;
-                    unsigned g = ((old & 0x00ff00) * (256 - alpha) + (tint & 0x00ff00) * alpha) >> 8;
-                    *pixel = RGB((rb & 0xff00ff) | (g & 0xff00));
-                }
-            }
-            int label_width = text_width(b->label);
-            text_at(b->x + (b->size - label_width) / 2, b->y + (h - 17) / 2,
-                    b->label, WHITE, b->x + b->size);
-        }
-    }
     if (notice_end > clock_ns()) {
         rect(17, 296, WIDTH - 34, 20, DARK);
         text_at(22, 298, notice, GRAY, WIDTH - 22);
@@ -1477,7 +1428,7 @@ static void draw_menu(void)
     rows[count++] = "Resume";
     char sound[32];
     snprintf(sound, sizeof sound, "Sound: %s", music_mode ? "Q2 Music" : "Game");
-    rows[count++] = sound;
+    if (!music_only) rows[count++] = sound;
     if (firmware_keys) rows[count++] = "Q2 Now Playing";
     char picture[40];
     snprintf(picture, sizeof picture, "Picture: %s / %s", scale_names[scaling],
@@ -1512,7 +1463,6 @@ static int smoke_test(const char *date)
     snprintf(today, sizeof today, "%s", date);
     seed = dailyred_seed(today);
     practice_mode = true; /* no stats writes, no daily lock */
-    practice_seed = seed;
     if (!load_rom_daily()) return 1;
     for (int i = 0; i < 600; ++i) { /* ~10 s of emulated time */
         core->run();
@@ -1572,22 +1522,11 @@ int main(int argc, char **argv)
     }
 
     if (!prepare_dirs()) return 1;
-    for (int i = 0; i < CONTROLS; ++i) buttons[i] = overlay_defaults[i];
     initialize_palette();
 
     log_launch();
 
-    /* Practice seed: a flag file in the data dir, e.g. "1234". Practice
-     * boots with daily=0 and records nothing (the web ?seed= equivalent).
-     * No on-screen keyboard exists in v1, so this is the practice path. */
-    {
-        char flag[PATH_CAP], text[32];
-        if (file_path(flag, sizeof flag, data_dir, "/" PRACTICE_SEED_NAME) &&
-            read_text(flag, text, sizeof text)) {
-            uint32_t parsed = dailyred_parse_seed(text);
-            if (parsed) { practice_mode = true; practice_seed = parsed; }
-        }
-    }
+
 
     /* Stats: settle an abandoned battle BEFORE offering Play. */
     (void)dailyred_stats_load(&stats, stats_path);
@@ -1600,11 +1539,11 @@ int main(int argc, char **argv)
     bool supports_audio2 = has_cap(caps, "audio2");
     bool was_audio2 = false;
     bool manifest_ready = enable_manifest_audio(supports_audio2, &was_audio2);
-    audio2 = supports_audio2 && argc == 1;
-    firmware_keys = has_cap(caps, "gameview");
+    audio2 = !music_only && supports_audio2 && argc == 1;
+    firmware_keys = !music_only && has_cap(caps, "gameview");
     native_supported = audio2 && firmware_keys;
-    music_mode = argc == 1 && audio2;
-    if (!platform_open(argc > 1 ? argv[1] : NULL, argc > 2 ? argv[2] : NULL, music_mode, firmware_keys)) {
+    music_mode = music_only || (argc == 1 && audio2);
+    if (!platform_open(argc > 1 ? argv[1] : NULL, argc > 2 ? argv[2] : NULL, music_mode, music_only || firmware_keys)) {
         fprintf(stderr, "Framebuffer or input socket initialization failed: %s\n", strerror(errno));
         platform_close();
         return 1;
@@ -1623,7 +1562,7 @@ int main(int argc, char **argv)
                        read_text(path, mode, sizeof mode) && has_cap(mode, "music");
         if (!prefer_music) (void)switch_audio2(AUDIO_GAME, false);
     }
-    if (!raw_buttons && !native_supported && !firmware_keys && !notice_end)
+    if (!music_only && !raw_buttons && !native_supported && !firmware_keys && !notice_end)
         status("Limited input: holding Up may exit");
 
     /* The ROM may be absent on first install; the launcher says so and
@@ -1656,6 +1595,13 @@ int main(int argc, char **argv)
             if (!next_frame || now - next_frame > period * 3) next_frame = now;
             next_frame += period;
             launch_stage = have_frame ? 4 : 3;
+            if (battle_wheel_release) battle_wheel_release = false;
+            else if (battle_wheel_steps) {
+                bool right = battle_wheel_steps > 0;
+                pressed_this_frame |= right ? KEY(RIGHT) : KEY(LEFT);
+                battle_wheel_steps += right ? -1 : 1;
+                battle_wheel_release = true;
+            }
             core->run();
             pressed_this_frame = 0;
             if (poll_status()) {

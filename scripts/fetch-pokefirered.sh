@@ -35,4 +35,9 @@ git -C "$GAME" fetch -q --depth 1 origin "$PRET_COMMIT"
 git -C "$GAME" checkout -q FETCH_HEAD
 echo ">> Applying $(basename "$PATCH")"
 git -C "$GAME" apply --whitespace=nowarn "$PATCH"
+for name in dailyred-direct-battle.patch dailyred-wheel-rom.patch; do
+  echo ">> Applying $name"
+  git -C "$GAME" apply --check "$ROOT/patches/$name"
+  git -C "$GAME" apply --whitespace=nowarn "$ROOT/patches/$name"
+done
 echo "Done. Build with: scripts/build-rom-linux.sh"
