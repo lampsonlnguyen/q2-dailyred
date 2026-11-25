@@ -19,10 +19,10 @@ in the launcher.
 ## How it works
 
 ```
-pret/pokefirered @ 037335f + patches/pokefirered-dailyred.patch
+pret/pokefirered @ 037335f + Daily Red patch + Q2 ROM patches
   ── make MODERN=1 ──▶ dailyred.gba (16 MB, built locally, never committed)
 Q2 launcher ──▶ today's local date → FNV-1a seed → patch a RAM copy of the ROM
-  ──▶ gpSP boots it → the game generates today's team → you climb to RED
+  ──▶ gpSP boots it → the game generates today's team → RED battle starts automatically
   ──▶ launcher polls the game's RAM status block → records win/loss in stats.json
 ```
 
@@ -43,6 +43,8 @@ controls, screen, audio, and the list of unknowns).
 
 ## Build
 
+The Q2-specific launcher changes are integrated into the application source. The fetch script applies the upstream Daily Red patch followed by the direct-battle and wheel-navigation ROM patches. For a one-command local build after installing both toolchains, run `bash scripts/patch-rom-to-use-wheel.sh`. It also supports an existing Daily Red source checkout and packages the locally built ROM in `dist/.dailyred/`. No Windows-specific paths are required.
+
 You need git, a Linux host, and (for the card app) a Q2 sysroot. No ROM is
 downloaded or used anywhere in this process — the ROM is built from source.
 
@@ -51,7 +53,7 @@ downloaded or used anywhere in this process — the ROM is built from source.
 scripts/setup-linux.sh              # xPack GCC 14.2.1, project-local, no sudo
 #   ... or: sudo apt install gcc-arm-none-eabi   (system GCC 13.2, simpler)
 
-# 2. Fetch the decompilation and apply the Daily Red patch (local scratch only)
+# 2. Fetch the decompilation and apply Daily Red and Q2 ROM patches (local scratch only)
 scripts/fetch-pokefirered.sh        # pret/pokefirered @ 037335f → .build/pokefirered
 
 # 3. Build the ROM (16 MB, verified to contain the DAILYRED-CONF-V2 magic)
@@ -85,21 +87,17 @@ ROM is missing, the launcher says so instead of failing.
 
 | Q2 button | In battle | In menus |
 |---|---|---|
-| Return | Up | Back |
-| Play/Pause | Down | — |
-| Previous | Left | — |
-| Next | Right | — |
-| Centre | A | Confirm |
-| Wheel | — | Step (21/tick) |
+| Return | B / Back | Back |
+| Play/Pause | Not mapped to GBA | — |
+| Previous / Next | Not mapped to GBA | — |
+| Centre | A / Confirm | Confirm |
+| Wheel | Cycle battle choices | Step (21/tick) |
 
-Touch overlays: L, R, B, Menu, Select, Start. Menu opens Pause
-(Resume / Sound: Game or Q2 Music / Q2 Now Playing / Picture / Exit to
-launcher). An edge swipe inward hides or shows the overlays.
+Swipe inward from either screen edge to open Pause (Resume / Picture / Exit to launcher). Game audio is disabled so Q2 music can continue.
 
-- Walk up the summit, talk to RED, battle. Losing does not white you out.
+- The battle starts automatically on entering the summit. Losing does not white you out.
 - After the closing messages the game fades to black; the launcher returns
   to the title screen after a second.
-- Return+Centre held 1.2 s force-closes (firmware gameview chord).
 - The launcher shows the date and seed it computed — if the Q2's clock or
   timezone is wrong, the team will be wrong, and this is where you see it.
 
