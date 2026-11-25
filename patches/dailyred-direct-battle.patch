@@ -1,0 +1,50 @@
+diff --git a/data/maps/DailyRed_Summit/scripts.inc b/data/maps/DailyRed_Summit/scripts.inc
+index 033ded0..40453b4 100644
+--- a/data/maps/DailyRed_Summit/scripts.inc
++++ b/data/maps/DailyRed_Summit/scripts.inc
+@@ -1,15 +1,19 @@
+ DailyRed_Summit_MapScripts::
++	map_script MAP_SCRIPT_ON_FRAME_TABLE, DailyRed_Summit_OnFrame
+ 	.byte 0
+ 
+-@ Talking to RED starts the battle. TRAINER_BATTLE_EARLY_RIVAL with
++DailyRed_Summit_OnFrame:
++	map_script_2 VAR_DAILYRED_BATTLE_TRIGGERED, 0, DailyRed_Summit_EventScript_Red
++	.2byte 0
++
++@ Start the battle as soon as the summit accepts input.
++@ TRAINER_BATTLE_EARLY_RIVAL with
+ @ RIVAL_BATTLE_HEAL_AFTER lets the player lose without whiting out, and sets
+ @ VAR_RESULT to TRUE if they lost. The DailyRed_On* specials tell the website
+ @ how the battle is going (see src/dailyred.c).
+ DailyRed_Summit_EventScript_Red::
+-	lock
+-	faceplayer
+-	textcolor NPC_TEXT_COLOR_MALE
+-	msgbox DailyRed_Summit_Text_RedIntro
++	lockall
++	setvar VAR_DAILYRED_BATTLE_TRIGGERED, 1
+ 	special DailyRed_OnBattleStart
+ 	trainerbattle_earlyrival TRAINER_DAILYRED_RED, RIVAL_BATTLE_HEAL_AFTER, DailyRed_Summit_Text_RedDefeat, DailyRed_Summit_Text_RedVictory
+ 	special DailyRed_OnBattleEnd
+@@ -70,6 +74,7 @@ DailyRed_Summit_EventScript_NextRun::
+ 	closemessage
+ 	fadescreen FADE_TO_BLACK
+ 	special DailyRed_StartNextRun
++	setvar VAR_DAILYRED_BATTLE_TRIGGERED, 0
+ 	@ Re-entering the map puts the player back at the start and resets RED.
+ 	warpsilent MAP_DAILY_RED_SUMMIT, DAILYRED_START_X, DAILYRED_START_Y
+ 	waitstate
+diff --git a/include/constants/vars.h b/include/constants/vars.h
+index e477fa9..a41bdf0 100644
+--- a/include/constants/vars.h
++++ b/include/constants/vars.h
+@@ -87,7 +87,7 @@
+ #define VAR_WONDER_NEWS_STEP_COUNTER       0x4028
+ #define VAR_DAILYRED_BATTLES               0x4029 // Daily Red: battles fought since boot
+ #define VAR_DAILYRED_WINS                  0x402A // Daily Red: wins since boot
+-#define VAR_0x402B                         0x402B
++#define VAR_DAILYRED_BATTLE_TRIGGERED      0x402B
+ #define VAR_0x402C                         0x402C
+ #define VAR_0x402D                         0x402D
+ #define VAR_0x402E                         0x402E

@@ -1,0 +1,216 @@
+diff --git a/src/battle_controller_player.c b/src/battle_controller_player.c
+index d8e1fe7..18e2a01 100644
+--- a/src/battle_controller_player.c
++++ b/src/battle_controller_player.c
+@@ -243,45 +243,16 @@ static void HandleInputChooseAction(void)
+         }
+         PlayerBufferExecCompleted();
+     }
+-    else if (JOY_NEW(DPAD_LEFT))
++    else if (JOY_NEW(DPAD_LEFT | DPAD_RIGHT | DPAD_UP | DPAD_DOWN))
+     {
+-        if (gActionSelectionCursor[gActiveBattler] & 1) // if is B_ACTION_USE_ITEM or B_ACTION_RUN
+-        {
+-            PlaySE(SE_SELECT);
+-            ActionSelectionDestroyCursorAt(gActionSelectionCursor[gActiveBattler]);
+-            gActionSelectionCursor[gActiveBattler] ^= 1;
+-            ActionSelectionCreateCursorAt(gActionSelectionCursor[gActiveBattler], 0);
+-        }
+-    }
+-    else if (JOY_NEW(DPAD_RIGHT))
+-    {
+-        if (!(gActionSelectionCursor[gActiveBattler] & 1)) // if is B_ACTION_USE_MOVE or B_ACTION_SWITCH
+-        {
+-            PlaySE(SE_SELECT);
+-            ActionSelectionDestroyCursorAt(gActionSelectionCursor[gActiveBattler]);
+-            gActionSelectionCursor[gActiveBattler] ^= 1;
+-            ActionSelectionCreateCursorAt(gActionSelectionCursor[gActiveBattler], 0);
+-        }
+-    }
+-    else if (JOY_NEW(DPAD_UP))
+-    {
+-        if (gActionSelectionCursor[gActiveBattler] & 2) // if is B_ACTION_SWITCH or B_ACTION_RUN
+-        {
+-            PlaySE(SE_SELECT);
+-            ActionSelectionDestroyCursorAt(gActionSelectionCursor[gActiveBattler]);
+-            gActionSelectionCursor[gActiveBattler] ^= 2;
+-            ActionSelectionCreateCursorAt(gActionSelectionCursor[gActiveBattler], 0);
+-        }
+-    }
+-    else if (JOY_NEW(DPAD_DOWN))
+-    {
+-        if (!(gActionSelectionCursor[gActiveBattler] & 2)) // if is B_ACTION_USE_MOVE or B_ACTION_USE_ITEM
+-        {
+-            PlaySE(SE_SELECT);
+-            ActionSelectionDestroyCursorAt(gActionSelectionCursor[gActiveBattler]);
+-            gActionSelectionCursor[gActiveBattler] ^= 2;
+-            ActionSelectionCreateCursorAt(gActionSelectionCursor[gActiveBattler], 0);
+-        }
++        u8 *cursor = &gActionSelectionCursor[gActiveBattler];
++        u8 count = 4;
++        u8 step = JOY_NEW(DPAD_LEFT | DPAD_UP) ? count - 1 : 1;
++
++        ActionSelectionDestroyCursorAt(*cursor);
++        *cursor = (*cursor + step) % count;
++        PlaySE(SE_SELECT);
++        ActionSelectionCreateCursorAt(*cursor, 0);
+     }
+     else if (JOY_NEW(B_BUTTON))
+     {
+@@ -508,59 +479,19 @@ void HandleInputChooseMove(void)
+         ResetPaletteFadeControl();
+         BeginNormalPaletteFade(0xF0000, 0, 0, 0, RGB_WHITE);
+     }
+-    else if (JOY_NEW(DPAD_LEFT))
++    else if (JOY_NEW(DPAD_LEFT | DPAD_RIGHT | DPAD_UP | DPAD_DOWN) && gNumberOfMovesToChoose > 1)
+     {
+-        if (gMoveSelectionCursor[gActiveBattler] & 1)
+-        {
+-            MoveSelectionDestroyCursorAt(gMoveSelectionCursor[gActiveBattler]);
+-            gMoveSelectionCursor[gActiveBattler] ^= 1;
+-            PlaySE(SE_SELECT);
+-            MoveSelectionCreateCursorAt(gMoveSelectionCursor[gActiveBattler], 0);
+-            MoveSelectionDisplayPpNumber();
+-            MoveSelectionDisplayMoveType();
+-            BeginNormalPaletteFade(0xF0000, 0, 0, 0, RGB_WHITE);
+-        }
+-    }
+-    else if (JOY_NEW(DPAD_RIGHT))
+-    {
+-        if (!(gMoveSelectionCursor[gActiveBattler] & 1)
+-         && (gMoveSelectionCursor[gActiveBattler] ^ 1) < gNumberOfMovesToChoose)
+-        {
+-            MoveSelectionDestroyCursorAt(gMoveSelectionCursor[gActiveBattler]);
+-            gMoveSelectionCursor[gActiveBattler] ^= 1;
+-            PlaySE(SE_SELECT);
+-            MoveSelectionCreateCursorAt(gMoveSelectionCursor[gActiveBattler], 0);
+-            MoveSelectionDisplayPpNumber();
+-            MoveSelectionDisplayMoveType();
+-            BeginNormalPaletteFade(0xF0000, 0, 0, 0, RGB_WHITE);
+-        }
+-    }
+-    else if (JOY_NEW(DPAD_UP))
+-    {
+-        if (gMoveSelectionCursor[gActiveBattler] & 2)
+-        {
+-            MoveSelectionDestroyCursorAt(gMoveSelectionCursor[gActiveBattler]);
+-            gMoveSelectionCursor[gActiveBattler] ^= 2;
+-            PlaySE(SE_SELECT);
+-            MoveSelectionCreateCursorAt(gMoveSelectionCursor[gActiveBattler], 0);
+-            MoveSelectionDisplayPpNumber();
+-            MoveSelectionDisplayMoveType();
+-            BeginNormalPaletteFade(0xF0000, 0, 0, 0, RGB_WHITE);
+-        }
+-    }
+-    else if (JOY_NEW(DPAD_DOWN))
+-    {
+-        if (!(gMoveSelectionCursor[gActiveBattler] & 2)
+-         && (gMoveSelectionCursor[gActiveBattler] ^ 2) < gNumberOfMovesToChoose)
+-        {
+-            MoveSelectionDestroyCursorAt(gMoveSelectionCursor[gActiveBattler]);
+-            gMoveSelectionCursor[gActiveBattler] ^= 2;
+-            PlaySE(SE_SELECT);
+-            MoveSelectionCreateCursorAt(gMoveSelectionCursor[gActiveBattler], 0);
+-            MoveSelectionDisplayPpNumber();
+-            MoveSelectionDisplayMoveType();
+-            BeginNormalPaletteFade(0xF0000, 0, 0, 0, RGB_WHITE);
+-        }
++        u8 *cursor = &gMoveSelectionCursor[gActiveBattler];
++        u8 count = gNumberOfMovesToChoose;
++        u8 step = JOY_NEW(DPAD_LEFT | DPAD_UP) ? count - 1 : 1;
++
++        MoveSelectionDestroyCursorAt(*cursor);
++        *cursor = (*cursor + step) % count;
++        PlaySE(SE_SELECT);
++        MoveSelectionCreateCursorAt(*cursor, 0);
++        MoveSelectionDisplayPpNumber();
++        MoveSelectionDisplayMoveType();
++        BeginNormalPaletteFade(0xF0000, 0, 0, 0, RGB_WHITE);
+     }
+     else if (JOY_NEW(SELECT_BUTTON))
+     {
+diff --git a/src/menu.c b/src/menu.c
+index 9ee9968..cb80030 100644
+--- a/src/menu.c
++++ b/src/menu.c
+@@ -351,13 +351,13 @@ s8 Menu_ProcessInput(void)
+     {
+         return MENU_B_PRESSED;
+     }
+-    if (JOY_NEW(DPAD_UP))
++    if (JOY_NEW(DPAD_UP | DPAD_LEFT))
+     {
+         PlaySE(SE_SELECT);
+         Menu_MoveCursor(-1);
+         return MENU_NOTHING_CHOSEN;
+     }
+-    if (JOY_NEW(DPAD_DOWN))
++    if (JOY_NEW(DPAD_DOWN | DPAD_RIGHT))
+     {
+         PlaySE(SE_SELECT);
+         Menu_MoveCursor(1);
+@@ -380,13 +380,13 @@ s8 Menu_ProcessInputNoWrapAround(void)
+     {
+         return MENU_B_PRESSED;
+     }
+-    if (JOY_NEW(DPAD_UP))
++    if (JOY_NEW(DPAD_UP | DPAD_LEFT))
+     {
+         if (oldPos != Menu_MoveCursorNoWrapAround(-1))
+             PlaySE(SE_SELECT);
+         return MENU_NOTHING_CHOSEN;
+     }
+-    if (JOY_NEW(DPAD_DOWN))
++    if (JOY_NEW(DPAD_DOWN | DPAD_RIGHT))
+     {
+         if (oldPos != Menu_MoveCursorNoWrapAround(1))
+             PlaySE(SE_SELECT);
+@@ -407,13 +407,13 @@ s8 Menu_ProcessInput_other(void)
+     {
+         return MENU_B_PRESSED;
+     }
+-    if (JOY_REPT(DPAD_ANY) == DPAD_UP)
++    if (JOY_REPT(DPAD_UP | DPAD_LEFT))
+     {
+         PlaySE(SE_SELECT);
+         Menu_MoveCursor(-1);
+         return MENU_NOTHING_CHOSEN;
+     }
+-    if (JOY_REPT(DPAD_ANY) == DPAD_DOWN)
++    if (JOY_REPT(DPAD_DOWN | DPAD_RIGHT))
+     {
+         PlaySE(SE_SELECT);
+         Menu_MoveCursor(1);
+@@ -436,13 +436,13 @@ s8 Menu_ProcessInputNoWrapAround_other(void)
+     {
+         return MENU_B_PRESSED;
+     }
+-    if (JOY_REPT(DPAD_ANY) == DPAD_UP)
++    if (JOY_REPT(DPAD_UP | DPAD_LEFT))
+     {
+         if (oldPos != Menu_MoveCursorNoWrapAround(-1))
+             PlaySE(SE_SELECT);
+         return MENU_NOTHING_CHOSEN;
+     }
+-    if (JOY_REPT(DPAD_ANY) == DPAD_DOWN)
++    if (JOY_REPT(DPAD_DOWN | DPAD_RIGHT))
+     {
+         if (oldPos != Menu_MoveCursorNoWrapAround(1))
+             PlaySE(SE_SELECT);
+diff --git a/src/party_menu.c b/src/party_menu.c
+index 7f3a881..9d07433 100644
+--- a/src/party_menu.c
++++ b/src/party_menu.c
+@@ -1307,10 +1307,10 @@ static u16 PartyMenuButtonHandler(s8 *slotPtr)
+         movementDir = MENU_DIR_DOWN;
+         break;
+     case DPAD_LEFT:
+-        movementDir = MENU_DIR_LEFT;
++        movementDir = gPartyMenu.menuType == PARTY_MENU_TYPE_IN_BATTLE ? MENU_DIR_UP : MENU_DIR_LEFT;
+         break;
+     case DPAD_RIGHT:
+-        movementDir = MENU_DIR_RIGHT;
++        movementDir = gPartyMenu.menuType == PARTY_MENU_TYPE_IN_BATTLE ? MENU_DIR_DOWN : MENU_DIR_RIGHT;
+         break;
+     default:
+         switch (GetLRKeysPressedAndHeld())
