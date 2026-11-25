@@ -65,7 +65,6 @@
 static const char *data_dir = DATA_DIR_DEFAULT;
 #define ROM_NAME "dailyred.gba"
 #define STATS_NAME "stats.json"
-#define PRACTICE_SEED_NAME "practice-seed.txt"
 #define DYNAREC_FLAG_NAME "enable-dynarec.txt"
 #define AUDIO_SOURCE_NAME "audio-source.cfg"
 #define LOG_NAME "q2-dailyred.log"
@@ -156,8 +155,23 @@ static char stats_path[PATH_CAP];
 static char today[DAILYRED_DATE_LEN];
 static uint32_t seed;
 static bool played_today;        /* lastPlayed == today (result known) */
-static bool practice_mode;       /* practice-seed.txt present: daily=0, nothing recorded */
-static uint32_t practice_seed;
+static bool practice_mode;       /* active run: daily=0, nothing recorded */
+static uint32_t practice_seed(void)
+{
+    static uint32_t previous;
+    uint32_t value;
+    FILE *random = fopen("/dev/urandom", "rb");
+    bool ok = random && fread(&value, sizeof value, 1, random) == 1;
+    if (random) fclose(random);
+    if (!ok) {
+        struct timespec ts = {0};
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        value = (uint32_t)time(NULL) ^ (uint32_t)ts.tv_nsec ^ (uint32_t)getpid();
+    }
+    if (!value || value == previous) value = previous == UINT32_MAX ? 1 : previous + 1;
+    previous = value;
+    return value;
+}
 static bool battle_seen;         /* phase reached BATTLE at least once */
 static bool result_recorded;     /* result written to stats for this run */
 static long status_offset;       /* cached DAILYRED-STATUS1 offset in SYSTEM_RAM, -1 = unscanned */
@@ -1219,7 +1233,7 @@ static int launcher_rows(void)
 {
     int rows = 0;
     if (!played_today && !rom_missing) ++rows;       /* Play today's battle */
-    if (practice_mode) ++rows;                        /* Practice (seed N) */
+    if (!rom_missing) ++rows;                         /* Practice */
     ++rows;                                           /* Exit */
     return rows;
 }
@@ -1238,9 +1252,10 @@ static void launcher_activate(int row)
         }
         ++index;
     }
-    if (practice_mode) {
+    if (!rom_missing) {
         if (row == index) {
-            seed = practice_seed;
+            practice_mode = true;
+            seed = practice_seed();
             if (load_rom_daily()) return;
             status("Could not start the practice battle");
             return;
@@ -1329,10 +1344,6 @@ static void draw_launcher(void)
     snprintf(line, sizeof line, "%s", today);
     text_at(90, y, line, WHITE, WIDTH - 16);
     y += 22;
-    text_at(17, y, "Seed", GRAY, WIDTH - 16);
-    snprintf(line, sizeof line, "%u", seed);
-    text_at(90, y, line, WHITE, WIDTH - 16);
-    y += 22;
 
     unsigned ws, ds;
     dailyred_current_streaks(&stats, today, &ws, &ds);
@@ -1378,11 +1389,10 @@ static void draw_launcher(void)
         ry += 22;
         ++row;
     }
-    if (practice_mode) {
+    if (!rom_missing) {
         bool chosen = launcher_focus == row;
-        snprintf(line, sizeof line, "%s Practice (seed %u, not recorded)",
-                 chosen ? ">" : " ", practice_seed);
-        text_at(17, ry, line, chosen ? ACCENT : WHITE, WIDTH - 16);
+        text_at(17, ry, chosen ? "> Practice" : "  Practice",
+                chosen ? ACCENT : WHITE, WIDTH - 16);
         ry += 22;
         ++row;
     }
@@ -1453,7 +1463,6 @@ static int smoke_test(const char *date)
     snprintf(today, sizeof today, "%s", date);
     seed = dailyred_seed(today);
     practice_mode = true; /* no stats writes, no daily lock */
-    practice_seed = seed;
     if (!load_rom_daily()) return 1;
     for (int i = 0; i < 600; ++i) { /* ~10 s of emulated time */
         core->run();
@@ -1517,17 +1526,7 @@ int main(int argc, char **argv)
 
     log_launch();
 
-    /* Practice seed: a flag file in the data dir, e.g. "1234". Practice
-     * boots with daily=0 and records nothing (the web ?seed= equivalent).
-     * No on-screen keyboard exists in v1, so this is the practice path. */
-    {
-        char flag[PATH_CAP], text[32];
-        if (file_path(flag, sizeof flag, data_dir, "/" PRACTICE_SEED_NAME) &&
-            read_text(flag, text, sizeof text)) {
-            uint32_t parsed = dailyred_parse_seed(text);
-            if (parsed) { practice_mode = true; practice_seed = parsed; }
-        }
-    }
+
 
     /* Stats: settle an abandoned battle BEFORE offering Play. */
     (void)dailyred_stats_load(&stats, stats_path);
