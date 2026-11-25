@@ -1,6 +1,5 @@
 name=Daily Red
 game=1
-audio=2
-gameview=1
+audio=0
 row=games
 wifi=0
