@@ -16,6 +16,11 @@ in the launcher.
 > or The Pokémon Company. Pokémon and all related names, characters and
 > game content are © Nintendo, Creatures Inc. and GAME FREAK inc.
 
+## Downloads and user guide
+
+- [GitHub Releases](https://github.com/lampsonlnguyen/q2-dailyred/releases)
+- [User Guide — installation, ROM patching, controls and troubleshooting](USER_GUIDE.md)
+
 ## How it works
 
 ```
