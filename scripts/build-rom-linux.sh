@@ -29,55 +29,28 @@ if [ ! -d "$GAME" ]; then
 fi
 
 # --- Resolve the toolchain -------------------------------------------------
-# pokefirered's Makefile uses TOOLCHAIN in one of two ways depending on
-# version: either as a directory holding bin/arm-none-eabi-gcc, or as a
-# command prefix (…/bin/arm-none-eabi-gcc). Detect which from the Makefile
-# instead of guessing, so both the xPack and system installs work.
-TC_ARG="${TOOLCHAIN:-}"
-if [ -z "$TC_ARG" ]; then
-  if [ -x "$ROOT/.toolchain/arm-none-eabi/bin/arm-none-eabi-gcc" ]; then
-    TC_ROOT="$ROOT/.toolchain/arm-none-eabi"
-  elif command -v arm-none-eabi-gcc >/dev/null 2>&1; then
-    TC_BIN="$(command -v arm-none-eabi-gcc)"
-    TC_ROOT="$(dirname "$(dirname "$TC_BIN")")"
-  else
-    echo "No ARM toolchain found. Either run scripts/setup-linux.sh"
-    echo "(xPack GCC 14.2.1, project-local) or install the system one:"
-    echo "  sudo apt-get install gcc-arm-none-eabi"
-    echo "Or set TOOLCHAIN to the toolchain dir or command prefix."
-    exit 1
-  fi
-  if grep -qE '\$\(TOOLCHAIN\)/bin/' "$GAME/Makefile" 2>/dev/null; then
-    TC_ARG="$TC_ROOT"
-  elif grep -qE '\$\(TOOLCHAIN\)-gcc' "$GAME/Makefile" 2>/dev/null; then
-    TC_ARG="$TC_ROOT/bin/arm-none-eabi"
-  else
-    echo "Could not tell how $GAME/Makefile uses TOOLCHAIN. Set TOOLCHAIN"
-    echo "explicitly (directory or command prefix) and re-run."
-    grep -n "TOOLCHAIN" "$GAME/Makefile" | head -10 || true
-    exit 1
-  fi
+# pret/pokefirered @ 037335f uses `TOOLCHAIN := $(DEVKITARM)` and invokes
+# arm-none-eabi-* from PATH. It does NOT use TOOLCHAIN as a command prefix.
+# Prefer the project-local xPack toolchain, otherwise use the system compiler.
+# Do not pass TOOLCHAIN= to make: it unnecessarily overrides upstream logic.
+if [ -x "$ROOT/.toolchain/arm-none-eabi/bin/arm-none-eabi-gcc" ]; then
+  export PATH="$ROOT/.toolchain/arm-none-eabi/bin:$PATH"
 fi
-
-# Prove the compiler runs before the long build starts.
-if [ -x "$TC_ARG/bin/arm-none-eabi-gcc" ]; then
-  CC="$TC_ARG/bin/arm-none-eabi-gcc"
-elif command -v "$TC_ARG-gcc" >/dev/null 2>&1; then
-  CC="$TC_ARG-gcc"
-else
-  echo "TOOLCHAIN '$TC_ARG' does not resolve to an arm-none-eabi-gcc."
+if ! command -v arm-none-eabi-gcc >/dev/null 2>&1; then
+  echo "ARM compiler not found; install gcc-arm-none-eabi or run scripts/setup-linux.sh."
   exit 1
 fi
-"$CC" --version | head -1
+arm-none-eabi-gcc --version | head -1
 
+# Prevent an unrelated DEVKITARM environment setting from enabling devkitPro
+# -lsysbase on standard Ubuntu and xPack compilers.
 JOBS="$(nproc 2>/dev/null || echo 4)"
-
 if [ "$#" -gt 0 ]; then
-  make -C "$GAME" -j"$JOBS" TOOLCHAIN="$TC_ARG" MODERN=1 "$@"
+  make -C "$GAME" -j"$JOBS" DEVKITARM= MODERN=1 "$@"
   exit 0
 fi
 
-make -C "$GAME" -j"$JOBS" TOOLCHAIN="$TC_ARG" MODERN=1
+make -C "$GAME" -j"$JOBS" DEVKITARM= MODERN=1
 
 ROM="$GAME/pokefirered_modern.gba"
 if [ ! -f "$ROM" ]; then

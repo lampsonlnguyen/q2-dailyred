@@ -30,6 +30,8 @@ jobs:
       - name: Check shell scripts
         run: |
           sh -n src/build-q2.sh tests/run_tests.sh tools/ci-sysroot.sh
+          sh -n package/.dailyred/run
+          grep -Fqx 'exec /tmp/q2-dailyred.bin' package/.dailyred/run
           bash -n scripts/fetch-pokefirered.sh scripts/build-rom-linux.sh scripts/setup-linux.sh
       - name: Run host logic tests
         run: sh tests/run_tests.sh
@@ -87,8 +89,8 @@ jobs:
             tag="$REF_NAME"
           elif [[ "$EVENT" == "workflow_dispatch" && -n "$INPUT_TAG" ]]; then
             tag="$INPUT_TAG"
-          elif [[ "$EVENT" == "push" && "$REF_NAME" == "main" ]] && ! gh release view v1.0.0 >/dev/null 2>&1; then
-            tag="v1.0.0"
+          elif [[ "$EVENT" == "push" && "$REF_NAME" == "main" ]] && ! gh release view v1.0.1 >/dev/null 2>&1; then
+            tag="v1.0.1"
           fi
           if [[ -n "$tag" && ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Release tag must be vMAJOR.MINOR.PATCH"
