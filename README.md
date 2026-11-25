@@ -34,9 +34,7 @@ Q2 launcher ──▶ today's local date → FNV-1a seed → patch a RAM copy of
   the moment RED's battle starts — same as the website.
 - **Your record lives on the SD card** (`/mnt/mmc/dailyred/stats.json`):
   wins, losses, win streak, day streak. The game itself never saves.
-- **Practice mode:** put a decimal seed in `/mnt/mmc/dailyred/practice-seed.txt`
-  and a "Practice (seed N, not recorded)" row appears on the launcher.
-  Practice boots with `daily=0` and records nothing.
+- **Practice mode:** select Practice at any time, even after completing the daily battle. Each launch generates a new seed internally; practice boots with `daily=0` and records nothing.
 
 See [DESIGN.md](DESIGN.md) for the full design (seed, stats state machine,
 controls, screen, audio, and the list of unknowns).
@@ -98,8 +96,7 @@ Swipe inward from either screen edge to open Pause (Resume / Picture / Exit to l
 - The battle starts automatically on entering the summit. Losing does not white you out.
 - After the closing messages the game fades to black; the launcher returns
   to the title screen after a second.
-- The launcher shows the date and seed it computed — if the Q2's clock or
-  timezone is wrong, the team will be wrong, and this is where you see it.
+- The launcher shows the local date; seeds are generated internally.
 
 ## Daily rules
 
@@ -107,7 +104,7 @@ Swipe inward from either screen edge to open Pause (Resume / Picture / Exit to l
 - The day counts as played the moment RED's battle starts. Leaving
   mid-battle — quitting, powering off, or the game restarting — is a loss.
 - Win and day streaks break when a day is missed. Totals never reset.
-- Practice runs (flag file, see above) are never recorded and never lock
+- Practice runs are never recorded and never lock
   the daily battle.
 
 ## Licences
